@@ -9,8 +9,12 @@
 class PcdSaver : public rclcpp::Node
 {
 public:
-    PcdSaver() : Node("pcd_saver")
+    // コンストラクタにargcとargvを追加
+    PcdSaver(int argc, char *argv[]) : Node("pcd_saver"), pcd_file_path_("/home/arata-22/study/GTA/data/pcd/final_cloud.pcd")
     {
+        if (argc > 1) {
+            pcd_file_path_ = argv[1]; // 実行時の第一引数をPCDファイルの保存先パスとして使用
+        }
         subscription_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
             "gta_pcl", 10,
             std::bind(&PcdSaver::pointCloudCallback, this, std::placeholders::_1));
@@ -25,12 +29,13 @@ public:
     {
         if (!cloud_->points.empty()) {
             // PCDファイルとして保存
-            pcl::io::savePCDFileASCII("final_cloud.pcd", *cloud_);
-            RCLCPP_INFO(this->get_logger(), "Saved %zu points to final_cloud.pcd", cloud_->size());
+            pcl::io::savePCDFileASCII(pcd_file_path_, *cloud_);
+            RCLCPP_INFO(this->get_logger(), "Saved %zu points to %s", cloud_->size(), pcd_file_path_.c_str());
         }
     }
 
 private:
+    std::string pcd_file_path_;
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_;
 
@@ -54,7 +59,7 @@ int main(int argc, char *argv[])
     signal(SIGINT, signalHandler);
 
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<PcdSaver>();
+    auto node = std::make_shared<PcdSaver>(argc, argv); // 修正部分
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;
