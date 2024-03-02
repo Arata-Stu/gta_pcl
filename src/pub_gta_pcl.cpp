@@ -1,5 +1,8 @@
 #include "rclcpp/rclcpp.hpp"
-#include "gta_msg/msg/gta_pcl.hpp"
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/point_types.h>
+#include <pcl/point_cloud.h>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -10,9 +13,9 @@
 class CsvPublisher : public rclcpp::Node
 {
 public:
-    CsvPublisher() : Node("csv_publisher"), start_time_(std::chrono::steady_clock::now())
+    CsvPublisher() : Node("csv_publisher")
     {
-        publisher_ = this->create_publisher<gta_msg::msg::GtaPcl>("gta_pcl", 10);
+        publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("gta_pcl", 10);
 
         // CSVファイルを読み込んでデータを準備
         loadCsv("/home/arata-22/ros_ws/src/fpstest.csv");
@@ -24,14 +27,13 @@ public:
 private:
     struct DataPoint
     {
-        double timestamp;
-        double x, y, z;
-        std::string entity_type;
+        float timestamp; // タイムスタンプを追加
+        float x, y, z;
     };
 
+
     std::vector<DataPoint> data_points_;
-    rclcpp::Publisher<gta_msg::msg::GtaPcl>::SharedPtr publisher_;
-    std::chrono::time_point<std::chrono::steady_clock> start_time_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_;
 
     void loadCsv(const std::string& file_path)
     {
@@ -43,45 +45,51 @@ private:
         {
             std::istringstream s(line);
             DataPoint data_point;
-            std::getline(s, line, ',');
-            data_point.timestamp = std::stod(line);
 
+            // タイムスタンプを読み込む
             std::getline(s, line, ',');
-            data_point.x = std::stod(line);
+            data_point.timestamp = std::stof(line);
 
+            // x, y, z 座標を読み込む
             std::getline(s, line, ',');
-            data_point.y = std::stod(line);
-
+            data_point.x = std::stof(line);
             std::getline(s, line, ',');
-            data_point.z = std::stod(line);
-
+            data_point.y = std::stof(line);
             std::getline(s, line, ',');
-            data_point.entity_type = line;
+            data_point.z = std::stof(line);
 
             data_points_.push_back(data_point);
         }
     }
 
-    void publishData()
-    {
+
+    // CSVファイルの読み込みとデータポイントの処理部分は変更なし
+
+    void publishData() {
+    // 最初のデータポイントのタイムスタンプを基準とする
+        auto base_timestamp = data_points_.front().timestamp;
         auto base_time = std::chrono::steady_clock::now();
-        for (auto& data_point : data_points_)
-        {
-            auto target_time = base_time + std::chrono::milliseconds(static_cast<int>(data_point.timestamp * 1000));
+
+        for (auto& data_point : data_points_) {
+            // 各データポイントの相対タイムスタンプを計算
+            auto delay_duration = std::chrono::milliseconds(static_cast<int>((data_point.timestamp - base_timestamp) * 1000));
+            auto target_time = base_time + delay_duration;
             std::this_thread::sleep_until(target_time);
 
-            gta_msg::msg::GtaPcl msg;
-            msg.timestamp = data_point.timestamp;
-            msg.x = data_point.x;
-            msg.y = data_point.y;
-            msg.z = data_point.z;
-            msg.entity_type = data_point.entity_type;
+            // ポイントクラウドの生成とパブリッシュ
+            pcl::PointCloud<pcl::PointXYZ> cloud;
+            cloud.push_back(pcl::PointXYZ(data_point.x, data_point.y, data_point.z));
 
-            publisher_->publish(msg);
-            RCLCPP_INFO(this->get_logger(), "Publishing: timestamp = '%f', x = '%f', y = '%f', z = '%f', entity_type = '%s'",
-                        msg.timestamp, msg.x, msg.y, msg.z, msg.entity_type.c_str());
+            sensor_msgs::msg::PointCloud2 output;
+            pcl::toROSMsg(cloud, output);
+            output.header.frame_id = "map";
+            output.header.stamp = this->get_clock()->now();
+
+            publisher_->publish(output);
+            // RCLCPP_INFO は、適宜使用してください
         }
     }
+
 };
 
 int main(int argc, char *argv[])
